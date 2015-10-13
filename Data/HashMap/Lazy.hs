@@ -40,6 +40,7 @@ module Data.HashMap.Lazy
     , HM.null
     , size
     , member
+    , notMember
     , HM.lookup
     , lookupDefault
     , (!)
@@ -60,6 +61,8 @@ module Data.HashMap.Lazy
     , HM.map
     , mapWithKey
     , traverseWithKey
+    , mapAccum
+    , mapAccumWithKey
 
       -- * Difference and intersection
     , difference

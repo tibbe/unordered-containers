@@ -148,6 +148,9 @@ pUnions xss = M.toAscList (M.unions (map M.fromList xss)) ==
 pMap :: [(Key, Int)] -> Bool
 pMap = M.map (+ 1) `eq_` HM.map (+ 1)
 
+pMapAccum :: Int -> [(Key, Int)] -> Bool
+pMapAccum n = (M.mapAccum  (\a b -> (a + 1, b+1)) n) `eq'` (HM.mapAccum (\a b -> (a + 1, b+1)) n)
+
 ------------------------------------------------------------------------
 -- ** Difference and intersection
 
@@ -267,6 +270,7 @@ tests =
     , testProperty "unions" pUnions
     -- Transformations
     , testProperty "map" pMap
+    , testProperty "mapAccum" pMapAccum
     -- Folds
     , testGroup "folds"
       [ testProperty "foldr" pFoldr
@@ -310,6 +314,16 @@ eq :: (Eq a, Eq k, Hashable k, Ord k)
    -> [(k, v)]               -- ^ Initial content of the 'HashMap' and 'Model'
    -> Bool                   -- ^ True if the functions are equivalent
 eq f g xs = g (HM.fromList xs) == f (M.fromList xs)
+
+eq' :: (Eq a, Eq k, Eq v, Hashable k, Ord k)
+    => (Model k v -> (a,Model k v))       -- ^ Function that modifies a 'Model'
+    -> (HM.HashMap k v -> (a,HM.HashMap k v))  -- ^ Function that modified a 'HashMap' in the same
+                              -- way
+    -> [(k, v)]               -- ^ Initial content of the 'HashMap' and 'Model'
+    -> Bool                   -- ^ True if the functions are equivalent
+eq' f g xs = (aS == aT) && (M.toAscList t == toAscList s)
+    where (aS,s) = g (HM.fromList xs) 
+          (aT,t) = f (M.fromList xs)
 
 eq_ :: (Eq k, Eq v, Hashable k, Ord k)
     => (Model k v -> Model k v)            -- ^ Function that modifies a 'Model'

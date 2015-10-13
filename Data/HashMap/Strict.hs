@@ -40,6 +40,7 @@ module Data.HashMap.Strict
     , HM.null
     , size
     , HM.member
+    , HM.notMember
     , HM.lookup
     , lookupDefault
     , (!)
@@ -60,8 +61,10 @@ module Data.HashMap.Strict
     , map
     , mapWithKey
     , traverseWithKey
+    , mapAccum
+    , mapAccumWithKey
 
-      -- * Difference and intersection
+      -- * Difference and intersection 
     , difference
     , intersection
     , intersectionWith

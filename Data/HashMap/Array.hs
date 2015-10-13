@@ -43,6 +43,8 @@ module Data.HashMap.Array
     , thaw
     , map
     , map'
+    , mapAccum
+    , mapAccum'
     , traverse
     , filter
     , toList
@@ -236,6 +238,12 @@ run2 k = runST (do
                  arr <- unsafeFreeze marr
                  return (arr,b))
 
+run3 :: (forall s. ST s (a, MArray s e)) -> (a, Array e)
+run3 k = runST (do
+                 (b,marr) <- k
+                 arr <- unsafeFreeze marr
+                 return (b,arr))
+
 -- | Unsafely copy the elements of an array. Array bounds are not checked.
 copy :: Array e -> Int -> MArray s e -> Int -> Int -> ST s ()
 #if __GLASGOW_HASKELL__ >= 702
@@ -399,6 +407,20 @@ map f = \ ary ->
              go ary mary (i+1) n
 {-# INLINE map #-}
 
+mapAccum :: (a -> b -> (a,c)) -> a -> Array b -> (a,Array c)
+mapAccum f = \a ary ->
+    let n = length ary
+    in run3 $ do
+        mary <- new_ n
+        go ary (a,mary) 0 n
+  where
+    go ary o@(a,mary) i n
+        | i >= n    = return o
+        | otherwise = do
+             let (a',res) = f a (index ary i)
+             write mary i $! res
+             go ary (a',mary) (i+1) n
+
 -- | Strict version of 'map'.
 map' :: (a -> b) -> Array a -> Array b
 map' f = \ ary ->
@@ -413,6 +435,22 @@ map' f = \ ary ->
              write mary i $! f (index ary i)
              go ary mary (i+1) n
 {-# INLINE map' #-}
+
+-- | Strict version of 'mapAccum'.
+mapAccum' :: (a -> b -> (a,c)) -> a -> Array b -> (a,Array c)
+mapAccum' f = \a ary ->
+    let !n = length ary
+    in run3 $ do
+        mary <- new_ n
+        go ary (a,mary) 0 n
+  where
+    go ary o@(!a,mary) i n
+        | i >= n    = return o
+        | otherwise = do
+             let (!a',!res) = f a (index ary i)
+             write mary i $! res
+             go ary (a',mary) (i+1) n
+{-# INLINE mapAccum' #-}
 
 fromList :: Int -> [a] -> Array a
 fromList n xs0 =

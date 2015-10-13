@@ -19,6 +19,7 @@ module Data.HashMap.Base
     , null
     , size
     , member
+    , notMember
     , lookup
     , lookupDefault
     , (!)
@@ -39,6 +40,8 @@ module Data.HashMap.Base
       -- * Transformations
     , map
     , mapWithKey
+    , mapAccum
+    , mapAccumWithKey
     , traverseWithKey
 
       -- * Difference and intersection
@@ -294,6 +297,11 @@ member k m = case lookup k m of
     Nothing -> False
     Just _  -> True
 {-# INLINABLE member #-}
+
+-- | /O(log n)/. Is the key not a member of the map. See also 'member'.
+notMember :: (Eq k, Hashable k) => k -> HashMap k a -> Bool
+notMember k m = not $ member k m
+{-# INLINABLE notMember #-}
 
 -- | /O(log n)/ Return the value to which the specified key is mapped,
 -- or 'Nothing' if this map contains no mapping for the key.
@@ -607,13 +615,13 @@ adjust f k0 m0 = go h0 k0 0 m0
         | otherwise = t
 {-# INLINABLE adjust #-}
 
+
 -- | /O(log n)/  The expression (@'update' f k map@) updates the value @x@ at @k@, 
 -- (if it is in the map). If (f k x) is @'Nothing', the element is deleted. 
 -- If it is (@'Just' y), the key k is bound to the new value y.
 update :: (Eq k, Hashable k) => (a -> Maybe a) -> k -> HashMap k a -> HashMap k a
 update f = alter (>>= f)
 {-# INLINABLE update #-}
-
 
 -- | /O(log n)/  The expression (@'alter' f k map@) alters the value @x@ at @k@, or
 -- absence thereof. @alter@ can be used to insert, delete, or update a value in a
@@ -775,6 +783,29 @@ mapWithKey f = go
 map :: (v1 -> v2) -> HashMap k v1 -> HashMap k v2
 map f = mapWithKey (const f)
 {-# INLINE map #-}
+
+-- | /O(n)/. The function 'mapAccum' threads an accumulating
+-- argument through the map in some unspecified order of keys.
+mapAccum :: (a -> v1 -> (a,v2)) -> a -> HashMap k v1 -> (a,HashMap k v2)
+mapAccum f = mapAccumWithKey (\a' _ x' -> f a' x')
+
+-- | /O(n)/. The function 'mapAccumWithKey' threads an accumulating
+-- argument through the map in some unspecified order of keys.
+mapAccumWithKey :: (a -> k -> v1 -> (a,v2)) -> a -> HashMap k v1 -> (a,HashMap k v2)
+mapAccumWithKey f = go 
+  where
+    go a Empty = (a,Empty)
+    go a (Leaf h (L k v)) = (a',Leaf h $ L k newAry)
+      where (!a',!newAry) = (f a k v)
+    go a (BitmapIndexed b ary) = (a',BitmapIndexed b newAry)
+      where (!a',!newAry) = A.mapAccum' go a ary
+    go a (Full ary) = (a', Full newAry)
+      where (!a',!newAry) = A.mapAccum' go a ary
+    go a (Collision h ary) = (a',Collision h newAry)
+      where (!a',!newAry) = A.mapAccum' f' a ary
+            f' ai (L k v) = (ai', L k res)
+                where (ai', res) = f ai k v
+{-# INLINE mapAccumWithKey #-}
 
 -- TODO: We should be able to use mutation to create the new
 -- 'HashMap'.
@@ -1079,6 +1110,7 @@ updateWith f k0 ary0 = go k0 ary0 0 (A.length ary0)
             (L kx y) | k == kx   -> A.update ary i (L k (f y))
                      | otherwise -> go k ary (i+1) n
 {-# INLINABLE updateWith #-}
+
 
 updateOrSnocWith :: Eq k => (v -> v -> v) -> k -> v -> A.Array (Leaf k v)
                  -> A.Array (Leaf k v)
