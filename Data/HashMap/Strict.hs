@@ -58,6 +58,7 @@ module Data.HashMap.Strict
     , map
     , mapWithKey
     , traverseWithKey
+    , traverseWithKey_
 
       -- * Difference and intersection
     , difference

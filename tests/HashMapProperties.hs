@@ -6,6 +6,7 @@
 module Main (main) where
 
 import Control.Monad ( guard )
+import Control.Monad.State ( execState, get, put )
 import qualified Data.Foldable as Foldable
 import Data.Function (on)
 import Data.Hashable (Hashable(hashWithSalt))
@@ -195,6 +196,13 @@ pUnions xss = M.toAscList (M.unions (map M.fromList xss)) ==
 pMap :: [(Key, Int)] -> Bool
 pMap = M.map (+ 1) `eq_` HM.map (+ 1)
 
+pTraverseWithKey_ :: [(Key, Int)] -> Bool
+pTraverseWithKey_ xs =
+    execState collectMap HM.empty == HM.fromList xs where
+        collectMap = HM.traverseWithKey_
+            (\k v -> get >>= \m -> put (HM.insert k v m))
+            (HM.fromList xs)
+
 ------------------------------------------------------------------------
 -- ** Difference and intersection
 
@@ -325,6 +333,7 @@ tests =
     , testProperty "unions" pUnions
     -- Transformations
     , testProperty "map" pMap
+    , testProperty "traverseWithKey_" pTraverseWithKey_
     -- Folds
     , testGroup "folds"
       [ testProperty "foldr" pFoldr

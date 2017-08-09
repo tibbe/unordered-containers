@@ -40,6 +40,7 @@ module Data.HashMap.Base
     , map
     , mapWithKey
     , traverseWithKey
+    , traverseWithKey_
 
       -- * Difference and intersection
     , difference
@@ -92,7 +93,7 @@ module Data.HashMap.Base
     ) where
 
 #if __GLASGOW_HASKELL__ < 710
-import Control.Applicative ((<$>), Applicative(pure))
+import Control.Applicative ((<$>), (*>), Applicative(pure))
 import Data.Monoid (Monoid(mempty, mappend))
 import Data.Traversable (Traversable(..))
 import Data.Word (Word)
@@ -932,6 +933,19 @@ traverseWithKey f = go
     go (Collision h ary)     =
         Collision h <$> A.traverse (\ (L k v) -> L k <$> f k v) ary
 {-# INLINE traverseWithKey #-}
+
+-- | /O(n)/ Map each element of a map to an action, evaluate these
+-- actions, and ignore the results.
+traverseWithKey_ :: Applicative f => (k -> v1 -> f b) -> HashMap k v1
+                -> f ()
+traverseWithKey_ f = go
+  where
+    go Empty                 = pure ()
+    go (Leaf _ (L k v))      = f k v *> pure ()
+    go (BitmapIndexed _ ary) = A.traverse_ go ary
+    go (Full ary)            = A.traverse_ go ary
+    go (Collision _ ary)     = A.traverse_ (\ (L k v) -> f k v) ary
+{-# INLINE traverseWithKey_ #-}
 
 ------------------------------------------------------------------------
 -- * Difference and intersection

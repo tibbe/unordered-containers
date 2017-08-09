@@ -44,10 +44,12 @@ module Data.HashMap.Array
     , map
     , map'
     , traverse
+    , traverse_
     , filter
     , toList
     ) where
 
+import qualified Data.Foldable as Foldable
 import qualified Data.Traversable as Traversable
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative)
@@ -400,6 +402,10 @@ traverse :: Applicative f => (a -> f b) -> Array a -> f (Array b)
 traverse f = \ ary -> fromList (length ary) `fmap`
                       Traversable.traverse f (toList ary)
 {-# INLINE traverse #-}
+
+traverse_ :: Applicative f => (a -> f b) -> Array a -> f ()
+traverse_ f = \ ary -> Foldable.traverse_ f (toList ary)
+{-# INLINE traverse_ #-}
 
 filter :: (a -> Bool) -> Array a -> Array a
 filter p = \ ary ->
