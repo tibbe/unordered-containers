@@ -84,15 +84,13 @@ data HashMap k v
     | BitmapIndexed !Bitmap !(A.Array (HashMap k v))
     | Leaf !Hash !(Leaf k v)
     | Full !(A.Array (HashMap k v))
-    | Collision !Hash !(A.Array (Leaf k v))
+    | Collision !Hash !(Leaf k v) !(Leaf k v) !(HashMap k v)
 ```
 
 Here's a quick overview in order of simplicty:
 
  * `Empty` -- The empty map.
  * `Leaf` -- A key-value pair.
- * `Collision` -- An array of key-value pairs where the keys have identical hash
-   values. Element order doesn't matter.
  * `Full` -- An array of *2^B* children. Given a key you can find the child it
    is part of by taking *B* bits of the hash value for the key and indexing into
    the key. Which bits to use depends on the tree level.
@@ -101,6 +99,8 @@ Here's a quick overview in order of simplicty:
    used to convert from the index taken from the hash value, just like above, to
    the actual index in the array. This node gets upgraded to a `Full` node when
    it contains *2^B* elements.
+ * `Collision` -- Twe key-value pairs that collide on the given hash, and a
+   recursive hashmap where keys are hashed with a different salt.
 
 The number of bits of the hash value to use at each level of the tree, *B*, is a
 compiled time constant (i.e. 4). In general a larger *B* improves lookup
@@ -110,6 +110,19 @@ updating the spine of the tree).
 `Full` is just an optimized version of `BitmapIndexed` that allows us faster
 indexing, faster copying on modification (given that its size is statically
 know), and lower memory use.
+
+`Collision` is a special case. The previous version used `Collision !Hash
+!(A.Array (HashMap k v))` instead of `Collision !Hash !(Leaf k v) !(Leaf k v)
+!(HashMap k v)`. As a result, hash-collisions would cause `O(number of
+collisions)` insertion time. Because the currently used hash function is not
+collision-resistant, it is cheap to make enough collisions to have this cause a
+denial of service exploit. However, we can use the fact that `hashable` supports
+salted hashing by default to alleviate at least some of this problem.  In the
+current version, insertion time is not `O(number of collisions)` but `O(number
+of consequtive levels of collision)`.  While this is not better in case all the
+collisions also collide on all subsequent salts, it is likely that a collision
+using one salt will not collide again on the next salt, so this approach is
+faster in the common case of collisions.
 
 ## Why things are fast
 

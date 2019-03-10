@@ -3,7 +3,7 @@
 -- | Tests for the 'Data.HashMap.Lazy' module.  We test functions by
 -- comparing them to a simpler model, an association list.
 
-module Main (main) where
+module Main where
 
 import Control.Monad ( guard )
 import qualified Data.Foldable as Foldable
@@ -27,6 +27,9 @@ import Data.Functor.Identity (Identity (..))
 import Control.Applicative (Const (..))
 import Test.QuickCheck.Function (Fun, apply)
 import Test.QuickCheck.Poly (A, B)
+#if MIN_VERSION_base(4,9,0)
+import Data.Functor.Classes (eq2, compare2)
+#endif
 
 -- Key type that generates more hash collisions.
 newtype Key = K { unK :: Int }
@@ -43,6 +46,17 @@ instance Hashable Key where
 
 pEq :: [(Key, Int)] -> [(Key, Int)] -> Bool
 pEq xs = (M.fromList xs ==) `eq` (HM.fromList xs ==)
+
+#if MIN_VERSION_base(4,9,0)
+-- Caution: this is a rather weak test. Fortunately, the "Permutation"
+-- properties in the HashSet test suite should catch most of what this
+-- doesn't.
+pEq2 :: [(Key, Int)] -> [(Key, Int)] -> Property
+pEq2 xs ys = (x == y) === (x `eq2` y)
+  where
+    x = HM.fromList xs
+    y = HM.fromList ys
+#endif
 
 pNeq :: [(Key, Int)] -> [(Key, Int)] -> Bool
 pNeq xs = (M.fromList xs /=) `eq` (HM.fromList xs /=)
@@ -75,6 +89,14 @@ pOrd3 xs ys = case (compare x y, compare y x) of
   where
     x = HM.fromList xs
     y = HM.fromList ys
+
+#if MIN_VERSION_base(4,9,0)
+pOrd4 :: [(Key, Int)] -> [(Key, Int)] -> Property
+pOrd4 xs ys = compare2 x y === compare x y
+  where
+    x = HM.fromList xs
+    y = HM.fromList ys
+#endif
 
 pOrdEq :: [(Key, Int)] -> [(Key, Int)] -> Bool
 pOrdEq xs ys = case (compare x y, x == y) of
@@ -133,12 +155,9 @@ newtype AlwaysCollide = AC Int
 
 instance Hashable AlwaysCollide where
     hashWithSalt _ _ = 1
-
--- White-box test that tests the case of deleting one of two keys from
--- a map, where the keys' hash values collide.
-pDeleteCollision :: AlwaysCollide -> AlwaysCollide -> AlwaysCollide -> Int
-                 -> Property
-pDeleteCollision k1 k2 k3 idx = (k1 /= k2) && (k2 /= k3) && (k1 /= k3) ==>
+    
+pDeleteAlwaysCollision :: AlwaysCollide -> AlwaysCollide -> AlwaysCollide -> Int -> Property
+pDeleteAlwaysCollision k1 k2 k3 idx = (k1 /= k2) && (k2 /= k3) && (k1 /= k3) ==>
                                 HM.member toKeep $ HM.delete toDelete $
                                 HM.fromList [(k1, 1 :: Int), (k2, 2), (k3, 3)]
   where
@@ -153,6 +172,39 @@ pDeleteCollision k1 k2 k3 idx = (k1 /= k2) && (k2 /= k3) && (k1 /= k3) ==>
         | which == 1 = k3
         | which == 2 = k1
         | otherwise = error "Impossible"
+
+
+
+newtype MostlyCollide = MC Int
+    deriving (Arbitrary, Eq, Ord, Show)
+
+instance Hashable MostlyCollide where
+    hashWithSalt s (MC i) = (hashWithSalt s i) `mod` 3
+
+-- White-box test that tests the case of deleting one of two keys from
+-- a map, where the keys' hash values collide.
+pDeleteMostlyCollision :: MostlyCollide -> MostlyCollide -> MostlyCollide -> Int
+                 -> Property
+pDeleteMostlyCollision k1 k2 k3 idx =
+  (k1 /= k2) && (k2 /= k3) && (k1 /= k3) &&
+  (hashWithSalt defaultSalt k1 == hashWithSalt defaultSalt k2) &&
+  (hashWithSalt defaultSalt k2 == hashWithSalt defaultSalt k3) &&
+  (hashWithSalt defaultSalt k1 == hashWithSalt defaultSalt k3) ==>
+  HM.member toKeep $ HM.delete toDelete $
+  HM.fromList [(k1, 1 :: Int), (k2, 2), (k3, 3)]
+  where
+    which = idx `mod` 3
+    toDelete
+        | which == 0 = k1
+        | which == 1 = k2
+        | which == 2 = k3
+        | otherwise = error "Impossible"
+    toKeep
+        | which == 0 = k2
+        | which == 1 = k3
+        | which == 2 = k1
+        | otherwise = error "Impossible"
+    defaultSalt = -2578643520546668380 -- TODO what do do with this test?
 
 pInsertWith :: Key -> [(Key, Int)] -> Bool
 pInsertWith k = M.insertWith (+) k 1 `eq_` HM.insertWith (+) k 1
@@ -349,9 +401,15 @@ tests =
       testGroup "instances"
       [ testProperty "==" pEq
       , testProperty "/=" pNeq
+#if MIN_VERSION_base(4,9,0)
+      , testProperty "eq2 = (==)" pEq2
+#endif
       , testProperty "compare reflexive" pOrd1
       , testProperty "compare transitive" pOrd2
       , testProperty "compare antisymmetric" pOrd3
+#if MIN_VERSION_base(4,9,0)
+      , testProperty "compare2 = compare" pOrd4
+#endif
       , testProperty "Ord => Eq" pOrdEq
       , testProperty "Read/Show" pReadShow
       , testProperty "Functor" pFunctor
@@ -365,7 +423,8 @@ tests =
       , testProperty "lookup" pLookup
       , testProperty "insert" pInsert
       , testProperty "delete" pDelete
-      , testProperty "deleteCollision" pDeleteCollision
+      , testProperty "deleteAlwaysCollision" pDeleteAlwaysCollision
+      , testProperty "deleteMostlyCollision" pDeleteMostlyCollision
       , testProperty "insertWith" pInsertWith
       , testProperty "adjust" pAdjust
       , testProperty "updateAdjust" pUpdateAdjust

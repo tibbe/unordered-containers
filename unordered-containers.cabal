@@ -28,13 +28,13 @@ flag debug
 
 library
   exposed-modules:
-    Data.HashMap.Lazy
-    Data.HashMap.Strict
-    Data.HashSet
-  other-modules:
     Data.HashMap.Array
     Data.HashMap.Base
+    Data.HashMap.Lazy
+    Data.HashMap.Strict
     Data.HashMap.Strict.Base
+    Data.HashSet
+  other-modules:
     Data.HashMap.List
     Data.HashMap.Unsafe
     Data.HashMap.UnsafeShift
@@ -63,6 +63,46 @@ library
     ghc-options: -feager-blackholing
   if flag(debug)
     cpp-options: -DASSERTS
+
+test-suite validity-lazy
+  hs-source-dirs: tests
+  main-is: Validity.hs
+  type: exitcode-stdio-1.0
+
+  build-depends:
+    base,
+    hashable >= 1.0.1.1,
+    QuickCheck >= 2.4.0.1,
+    test-framework >= 0.3.3,
+    test-framework-quickcheck2 >= 0.2.9,
+    validity >= 0.4.0.4,
+    genvalidity >= 0.4.0.4,
+    genvalidity-property >= 0.1.0.0,
+    unordered-containers
+
+  default-language: Haskell2010
+  ghc-options: -Wall
+  cpp-options: -DASSERTS
+
+test-suite validity-strict
+  hs-source-dirs: tests
+  main-is: Validity.hs
+  type: exitcode-stdio-1.0
+
+  build-depends:
+    base,
+    hashable >= 1.0.1.1,
+    QuickCheck >= 2.4.0.1,
+    test-framework >= 0.3.3,
+    test-framework-quickcheck2 >= 0.2.9,
+    validity >= 0.4.0.4,
+    genvalidity >= 0.4.0.4,
+    genvalidity-property >= 0.1.0.0,
+    unordered-containers
+
+  default-language: Haskell2010
+  ghc-options: -Wall
+  cpp-options: -DASSERTS -DSTRICT
 
 test-suite hashmap-lazy-properties
   hs-source-dirs: tests

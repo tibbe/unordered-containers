@@ -128,7 +128,7 @@ instance Eq1 HashSet where
     liftEq eq (HashSet a) (HashSet b) = equalKeys1 eq a b
 #endif
 
-instance (Ord a) => Ord (HashSet a) where
+instance (Ord a, Hashable a) => Ord (HashSet a) where
     compare (HashSet a) (HashSet b) = compare a b
     {-# INLINE compare #-}
 
