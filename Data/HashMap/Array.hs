@@ -36,7 +36,6 @@ module Data.HashMap.Array
     , unsafeThaw
     , unsafeSameArray
     , run
-    , run2
     , copy
     , copyM
 
@@ -59,6 +58,11 @@ import Control.Applicative (Applicative (..), (<$>))
 import Control.Applicative (liftA2)
 import Control.DeepSeq
 import GHC.Exts(Int(..), Int#, reallyUnsafePtrEquality#, tagToEnum#, unsafeCoerce#, State#)
+#if MIN_VERSION_base(4,10,0)
+import GHC.Exts (runRW#)
+#elif MIN_VERSION_base(4,9,0)
+import GHC.Base (runRW#)
+#endif
 import GHC.ST (ST(..))
 import Control.Monad.ST (stToIO)
 
@@ -256,12 +260,16 @@ new_ :: Int -> ST s (MArray s a)
 new_ n = new n undefinedElem
 
 singleton :: a -> Array a
-singleton x = runST (singletonM x)
+singleton x = run (singletonMut x)
 {-# INLINE singleton #-}
 
 singletonM :: a -> ST s (Array a)
 singletonM x = new 1 x >>= unsafeFreeze
 {-# INLINE singletonM #-}
+
+singletonMut :: a -> ST s (MArray s a)
+singletonMut x = new 1 x
+{-# INLINE singletonMut #-}
 
 pair :: a -> a -> Array a
 pair x y = run $ do
@@ -314,14 +322,18 @@ unsafeThaw ary
 {-# INLINE unsafeThaw #-}
 
 run :: (forall s . ST s (MArray s e)) -> Array e
-run act = runST $ act >>= unsafeFreeze
+#if MIN_VERSION_base(4,9,0)
+-- GHC can't unbox across the runRW# boundary, so we apply the Array constructor
+-- on the outside.
+run (ST act) =
+  case runRW# $ \s ->
+    case act s of { (# s', MArray mary #) ->
+      unsafeFreezeArray# mary s' } of
+    (# _, ary #) -> Array ary
+#else
+run act = runST (act >>= unsafeFreeze)
+#endif
 {-# INLINE run #-}
-
-run2 :: (forall s. ST s (MArray s e, a)) -> (Array e, a)
-run2 k = runST (do
-                 (marr,b) <- k
-                 arr <- unsafeFreeze marr
-                 return (arr,b))
 
 -- | Unsafely copy the elements of an array. Array bounds are not checked.
 copy :: Array e -> Int -> MArray s e -> Int -> Int -> ST s ()
@@ -357,34 +369,38 @@ trim mary n = cloneM mary 0 n >>= unsafeFreeze
 -- | /O(n)/ Insert an element at the given position in this array,
 -- increasing its size by one.
 insert :: Array e -> Int -> e -> Array e
-insert ary idx b = runST (insertM ary idx b)
+insert ary idx b = run (insertMut ary idx b)
 {-# INLINE insert #-}
 
 -- | /O(n)/ Insert an element at the given position in this array,
 -- increasing its size by one.
 insertM :: Array e -> Int -> e -> ST s (Array e)
-insertM ary idx b =
+insertM ary idx b = insertMut ary idx b >>= unsafeFreeze
+{-# INLINE insertM #-}
+
+insertMut :: Array e -> Int -> e -> ST s (MArray s e)
+insertMut ary idx b =
     CHECK_BOUNDS("insertM", count + 1, idx)
         do mary <- new_ (count+1)
            copy ary 0 mary 0 idx
            write mary idx b
            copy ary idx mary (idx+1) (count-idx)
-           unsafeFreeze mary
+           return mary
   where !count = length ary
-{-# INLINE insertM #-}
+{-# INLINE insertMut #-}
 
 -- | /O(n)/ Update the element at the given position in this array.
 update :: Array e -> Int -> e -> Array e
-update ary idx b = runST (updateM ary idx b)
+update ary idx b = run (updateM ary idx b)
 {-# INLINE update #-}
 
 -- | /O(n)/ Update the element at the given position in this array.
-updateM :: Array e -> Int -> e -> ST s (Array e)
+updateM :: Array e -> Int -> e -> ST s (MArray s e)
 updateM ary idx b =
     CHECK_BOUNDS("updateM", count, idx)
         do mary <- thaw ary 0 count
            write mary idx b
-           unsafeFreeze mary
+           return mary
   where !count = length ary
 {-# INLINE updateM #-}
 
@@ -442,18 +458,18 @@ thaw !ary !_o@(I# o#) !n@(I# n#) =
 -- | /O(n)/ Delete an element at the given position in this array,
 -- decreasing its size by one.
 delete :: Array e -> Int -> Array e
-delete ary idx = runST (deleteM ary idx)
+delete ary idx = run (deleteM ary idx)
 {-# INLINE delete #-}
 
 -- | /O(n)/ Delete an element at the given position in this array,
 -- decreasing its size by one.
-deleteM :: Array e -> Int -> ST s (Array e)
+deleteM :: Array e -> Int -> ST s (MArray s e)
 deleteM ary idx = do
     CHECK_BOUNDS("deleteM", count, idx)
         do mary <- new_ (count-1)
            copy ary 0 mary 0 idx
            copy ary (idx+1) mary idx (count-(idx+1))
-           unsafeFreeze mary
+           return mary
   where !count = length ary
 {-# INLINE deleteM #-}
 
@@ -463,9 +479,10 @@ map f = \ ary ->
     in run $ do
         mary <- new_ n
         go ary mary 0 n
+        return mary
   where
     go ary mary i n
-        | i >= n    = return mary
+        | i >= n    = return ()
         | otherwise = do
              x <- indexM ary i
              write mary i $ f x
@@ -479,9 +496,10 @@ map' f = \ ary ->
     in run $ do
         mary <- new_ n
         go ary mary 0 n
+        return mary
   where
     go ary mary i n
-        | i >= n    = return mary
+        | i >= n    = return ()
         | otherwise = do
              x <- indexM ary i
              write mary i $! f x
@@ -494,8 +512,9 @@ fromList n xs0 =
         run $ do
             mary <- new_ n
             go xs0 mary 0
+            return mary
   where
-    go [] !mary !_   = return mary
+    go [] !_ !_   = return ()
     go (x:xs) mary i = do write mary i x
                           go xs mary (i+1)
 

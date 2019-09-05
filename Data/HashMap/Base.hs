@@ -90,7 +90,6 @@ module Data.HashMap.Base
     , two
     , unionArrayBy
     , update16
-    , update16M
     , update16With'
     , updateOrConcatWith
     , updateOrConcatWithKey
@@ -653,7 +652,10 @@ collision h !e1 !e2 =
 
 -- | Create a 'BitmapIndexed' or 'Full' node.
 bitmapIndexedOrFull :: Bitmap -> A.Array (HashMap k v) -> HashMap k v
-bitmapIndexedOrFull b ary
+-- I don't know if it ever matters in context (once inlined),
+-- but the Core for this function looks a lot nicer if we force
+-- the array argument manually. I don't know why that is.
+bitmapIndexedOrFull b !ary
     | b == fullNodeMask = Full ary
     | otherwise         = BitmapIndexed b ary
 {-# INLINE bitmapIndexedOrFull #-}
@@ -1401,7 +1403,7 @@ unionWithKey f = go 0
 -- | Strict in the result of @f@.
 unionArrayBy :: (a -> a -> a) -> Bitmap -> Bitmap -> A.Array a -> A.Array a
              -> A.Array a
-unionArrayBy f b1 b2 ary1 ary2 = A.run $ do
+unionArrayBy f !b1 !b2 !ary1 !ary2 = A.run $ do
     let b' = b1 .|. b2
     mary <- A.new_ (popCount b')
     -- iterate over nonzero bits of b1 .|. b2
@@ -1843,16 +1845,16 @@ updateOrConcatWithKey f ary1 ary2 = A.run $ do
 
 -- | /O(n)/ Update the element at the given position in this array.
 update16 :: A.Array e -> Int -> e -> A.Array e
-update16 ary idx b = runST (update16M ary idx b)
+update16 ary idx b = A.run (update16Mut ary idx b)
 {-# INLINE update16 #-}
 
 -- | /O(n)/ Update the element at the given position in this array.
-update16M :: A.Array e -> Int -> e -> ST s (A.Array e)
-update16M ary idx b = do
+update16Mut :: A.Array e -> Int -> e -> ST s (A.MArray s e)
+update16Mut ary idx b = do
     mary <- clone16 ary
     A.write mary idx b
-    A.unsafeFreeze mary
-{-# INLINE update16M #-}
+    return mary
+{-# INLINE update16Mut #-}
 
 -- | /O(n)/ Update the element at the given position in this array, by applying a function to it.
 update16With' :: A.Array e -> Int -> (e -> e) -> A.Array e
