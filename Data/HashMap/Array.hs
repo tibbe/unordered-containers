@@ -249,7 +249,7 @@ rnfArray ary0 = go ary0 n0 0
 -- state thread, with each element containing the specified initial
 -- value.
 new :: Int -> a -> ST s (MArray s a)
-new n@(I# n#) b =
+new n@(I# n#) !b =
     CHECK_GT("new",n,(0 :: Int))
     ST $ \s ->
         case newArray# n# b s of
@@ -257,7 +257,11 @@ new n@(I# n#) b =
 {-# INLINE new #-}
 
 new_ :: Int -> ST s (MArray s a)
-new_ n = new n undefinedElem
+new_ n@(I# n#) =
+  CHECK_GT("new",n,(0 :: Int))
+  ST $ \s ->
+     case newArray# n# undefinedElem s of
+       (# s', ary #) -> (# s', marray ary n #)
 
 singleton :: a -> Array a
 singleton x = runST (singletonM x)
