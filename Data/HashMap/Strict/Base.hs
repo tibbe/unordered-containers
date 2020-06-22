@@ -494,7 +494,7 @@ unionWithKey f = go 0
     leafHashCode _ = error "leafHashCode"
 
     goDifferentHash s h1 h2 t1 t2
-        | m1 == m2  = BitmapIndexed m1 (A.singleton $! go (s+bitsPerSubkey) t1 t2)
+        | m1 == m2  = BitmapIndexed m1 (A.singleton $! goDifferentHash (s+bitsPerSubkey) h1 h2 t1 t2)
         | m1 <  m2  = BitmapIndexed (m1 .|. m2) (A.pair t1 t2)
         | otherwise = BitmapIndexed (m1 .|. m2) (A.pair t2 t1)
       where
