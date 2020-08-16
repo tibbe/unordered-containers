@@ -1852,6 +1852,16 @@ foldl f = foldlWithKey (\a _k v -> f a v)
 -- | /O(n)/ Reduce this map by applying a binary operator to all
 -- elements, using the given starting value (typically the
 -- right-identity of the operator).
+--
+-- === __Example: @traverseWithKey_@__
+--
+-- 'foldrWithKey' can be used to define a variant of 'Data.Foldable.traverse_'
+-- that has access to the keys:
+--
+-- @
+-- traverseWithKey_ :: 'Applicative' f => (k -> v -> f a) -> 'HashMap' k v -> f ()
+-- traverseWithKey_ f = 'foldrWithKey' (\\k v m -> f k v *> m) (pure ())
+-- @
 foldrWithKey :: (k -> v -> a -> a) -> a -> HashMap k v -> a
 foldrWithKey f = flip go
   where
