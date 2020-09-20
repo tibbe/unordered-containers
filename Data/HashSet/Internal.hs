@@ -354,7 +354,7 @@ null :: HashSet a -> Bool
 null = H.null . asMap
 {-# INLINE null #-}
 
--- | /O(n)/ Return the number of elements in this set.
+-- | /O(1)/ Return the number of elements in this set.
 --
 -- >>> HashSet.size HashSet.empty
 -- 0

@@ -107,6 +107,24 @@ test-suite hashmap-strict-properties
   ghc-options: -Wall
   cpp-options: -DASSERTS -DSTRICT
 
+test-suite hashmap-size-invariant
+  hs-source-dirs: tests
+  main-is: Size.hs
+  type: exitcode-stdio-1.0
+
+  build-depends:
+    base,
+    containers >= 0.4,
+    hashable >= 1.0.1.1,
+    QuickCheck >= 2.4.0.1,
+    test-framework >= 0.3.3,
+    test-framework-quickcheck2 >= 0.2.9,
+    unordered-containers
+
+  default-language: Haskell2010
+  ghc-options: -Wall
+  cpp-options: -DASSERTS -DSTRICT
+
 test-suite hashset-properties
   hs-source-dirs: tests
   main-is: HashSetProperties.hs

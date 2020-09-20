@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, Rank2Types, UnboxedTuples, ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fno-full-laziness -funbox-strict-fields #-}
 {-# OPTIONS_HADDOCK not-home #-}
 
@@ -22,6 +23,10 @@
 module Data.HashMap.Internal.Array
     ( Array
     , MArray
+    , RunResA (..)
+    , RunResM (..)
+    , Size (..)
+    , Sized (..)
 
       -- * Creation
     , new
@@ -40,6 +45,7 @@ module Data.HashMap.Internal.Array
     , index#
     , update
     , updateWith'
+    , updateWithInternal'
     , unsafeUpdateM
     , insert
     , insertM
@@ -51,6 +57,8 @@ module Data.HashMap.Internal.Array
     , unsafeThaw
     , unsafeSameArray
     , run
+    , runInternal
+    , run2
     , copy
     , copyM
 
@@ -322,9 +330,26 @@ unsafeThaw ary
                    (# s', mary #) -> (# s', MArray mary #)
 {-# INLINE unsafeThaw #-}
 
+data RunResA e = RunResA !Size !(Array e)
+
+data RunResM s e = RunResM !Size !(MArray s e)
+
 run :: (forall s . ST s (MArray s e)) -> Array e
 run act = runST $ act >>= unsafeFreeze
 {-# INLINE run #-}
+
+runInternal :: (forall s . ST s (RunResM s e)) -> RunResA e
+runInternal act = runST $ do
+    RunResM s mary <- act
+    ary <- unsafeFreeze mary
+    return (RunResA s ary)
+{-# INLINE runInternal #-}
+
+run2 :: (forall s. ST s (MArray s e, a)) -> (Array e, a)
+run2 k = runST (do
+                 (marr,b) <- k
+                 arr <- unsafeFreeze marr
+                 return (arr,b))
 
 -- | Unsafely copy the elements of an array. Array bounds are not checked.
 copy :: Array e -> Int -> MArray s e -> Int -> Int -> ST s ()
@@ -391,7 +416,7 @@ updateM ary idx b =
   where !count = length ary
 {-# INLINE updateM #-}
 
--- | /O(n)/ Update the element at the given positio in this array, by
+-- | /O(n)/ Update the element at the given position in this array, by
 -- applying a function to it.  Evaluates the element to WHNF before
 -- inserting it into the array.
 updateWith' :: Array e -> Int -> (e -> e) -> Array e
@@ -399,6 +424,26 @@ updateWith' ary idx f
   | (# x #) <- index# ary idx
   = update ary idx $! f x
 {-# INLINE updateWith' #-}
+
+-- | This newtype wrapper is to avoid confusion when local functions
+-- take more than one paramenter of 'Int' type (see 'go' in
+-- 'Data.HashMap.Base.unionWithKeyInternal').
+newtype Size = Size { unSize :: Int }
+    deriving (Eq, Ord, Num, Integral, Enum, Real)
+
+-- | Helper datatype used in 'updateWithInternal''. Used when a change in
+-- a value's size must be returned along with the value itself (typically
+-- a hashmap).
+data Sized a = Sized {-# UNPACK #-} !Size !a
+
+-- | /O(n)/ Update the element at the given position in this array, by
+-- applying a function to it.  Evaluates the element to WHNF before
+-- inserting it into the array.
+updateWithInternal' :: Array e -> Int -> (e -> Sized e) -> RunResA e
+updateWithInternal' ary idx f =
+    let Sized sz e = f (index ary idx)
+    in RunResA sz (update ary idx e)
+{-# INLINE updateWithInternal' #-}
 
 -- | /O(1)/ Update the element at the given position in this array,
 -- without copying.
