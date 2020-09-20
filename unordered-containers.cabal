@@ -215,6 +215,7 @@ benchmark benchmarks
     bytestring,
     containers,
     gauge >= 0.2.5 && < 0.3,
+    vector,
     deepseq >= 1.4,
     hashable >= 1.0.1.1,
     hashmap,

@@ -10,8 +10,11 @@ import Data.Hashable (Hashable, hash)
 import qualified Data.ByteString as BS
 import qualified "hashmap" Data.HashMap as IHM
 import qualified Data.HashMap.Strict as HM
+import qualified "unordered-containers" Data.HashSet as HS
 import qualified Data.IntMap as IM
 import qualified Data.Map as M
+import qualified Data.Set as S
+import qualified Data.Vector as V
 import Data.List (foldl')
 import Data.Maybe (fromMaybe)
 import GHC.Generics (Generic)
@@ -36,6 +39,8 @@ instance NFData B where
 data Env = Env {
     n :: !Int,
 
+    csz :: !Int, -- container size
+
     elems   :: ![(String, Int)],
     keys    :: ![String],
     elemsBS :: ![(BS.ByteString, Int)],
@@ -47,6 +52,11 @@ data Env = Env {
     keys'    :: ![String],
     keysBS'  :: ![BS.ByteString],
     keysI'   :: ![Int],
+
+    listOfHMs :: ![HM.HashMap Int Int],
+    vecOfHMs  :: !(V.Vector (HM.HashMap Int Int)),
+    hsetOfHMs :: !(HS.HashSet (HM.HashMap Int Int)),
+    setOfHMs  :: !(S.Set (HM.HashMap Int Int)),
 
     keysDup    :: ![String],
     keysDupBS  :: ![BS.ByteString],
@@ -78,6 +88,20 @@ setupEnv :: IO Env
 setupEnv = do
     let n = 2^(12 :: Int)
 
+        -- When building a container of hashmaps, 'cn' will be the size of each.
+        cn = n `div` 16
+        -- 'csz' is the size of the container of hashmaps.
+        csz = 2^(7 :: Int)
+
+        values = [1..csz*cn]
+
+        chop _ [] = []
+        chop k l =
+            let (taken, left) = splitAt k l
+            in taken : chop k left
+
+        vals = chop cn values
+
         elems   = zip keys [1..n]
         keys    = US.rnd 8 n
         elemsBS = zip keysBS [1..n]
@@ -89,6 +113,11 @@ setupEnv = do
         keys'    = US.rnd' 8 n
         keysBS'  = UBS.rnd' 8 n
         keysI'   = UI.rnd' (n+n) n
+
+        listOfHMs = zipWith (\x y -> HM.fromList (zip x y)) (repeat keysI) vals
+        vecOfHMs  = V.fromList listOfHMs
+        hsetOfHMs = HS.fromList listOfHMs
+        setOfHMs  = S.fromList listOfHMs
 
         keysDup    = US.rnd 2 n
         keysDupBS  = UBS.rnd 2 n
@@ -126,8 +155,8 @@ main = do
     defaultMain
         [
           env setupEnv $ \ ~(Env{..}) ->
-          -- * Comparison to other data structures
-          -- ** Map
+          -- Comparison to other data structures
+          -- Map
           bgroup "Map"
           [ bgroup "lookup"
             [ bench "String" $ whnf (lookupM keys) m
@@ -167,7 +196,7 @@ main = do
             ]
           ]
 
-          -- ** Map from the hashmap package
+          -- Map from the hashmap package
         , env setupEnv $ \ ~(Env{..}) ->
           bgroup "hashmap/Map"
           [ bgroup "lookup"
@@ -212,7 +241,7 @@ main = do
             ]
           ]
 
-          -- ** IntMap
+          -- IntMap
         , env setupEnv $ \ ~(Env{..}) ->
           bgroup "IntMap"
           [ bench "lookup" $ whnf (lookupIM keysI) im
@@ -228,7 +257,7 @@ main = do
 
         , env setupEnv $ \ ~(Env{..}) ->
           bgroup "HashMap"
-          [ -- * Basic interface
+          [ -- Basic interface
             bgroup "lookup"
             [ bench "String" $ whnf (lookup keys) hm
             , bench "ByteString" $ whnf (lookup keysBS) hmbs
@@ -310,13 +339,58 @@ main = do
             , bench "Int" $ whnf (isSubmapOfNaive hmiSubset) hmi
             ]
 
+          , bgroup "containerized"
+            [ bgroup "lookup"
+              [ bench "List" $ nf (lookupC keysI) listOfHMs
+              , bench "Vector" $ nf (lookupC keysI) vecOfHMs
+              , bench "HashSet" $ nf (lookupHS keysI) hsetOfHMs
+              , bench "Set" $ nf (lookupS keysI) setOfHMs
+              ]
+            , bgroup "insert"
+              [ bench "List" $ nf (insertC elemsI) listOfHMs
+              , bench "Vector" $ nf (insertC elemsI) vecOfHMs
+              , bench "HashSet" $ nf (insertHS elemsI) hsetOfHMs
+              , bench "Set" $ nf (insertS elemsI) setOfHMs
+              ]
+            , bgroup "delete"
+              [ bench "List" $ nf (deleteC keysI) listOfHMs
+              , bench "Vector" $ nf (deleteC keysI) vecOfHMs
+              , bench "HashSet" $ nf (deleteHS keysI) hsetOfHMs
+              , bench "Set" $ nf (deleteS keysI) setOfHMs
+              ]
+            , bgroup "union"
+              [ bench "List" $ whnf unionC listOfHMs
+              , bench "Vector" $ whnf unionC vecOfHMs
+              , bench "HashSet" $ whnf unionC hsetOfHMs
+              , bench "Set" $ whnf unionC setOfHMs
+              ]
+            , bgroup "map"
+              [ bench "List" $ nf (mapC (\ v -> v + 1)) listOfHMs
+              , bench "Vector" $ nf (mapC (\ v -> v + 1)) vecOfHMs
+              , bench "HashSet" $ nf (mapHS (\ v -> v + 1)) hsetOfHMs
+              , bench "Set" $ nf (mapS (\ v -> v + 1)) setOfHMs
+              ]
+            , bgroup "intersection"
+              [ bench "List" $ whnf intersectionC listOfHMs
+              , bench "Vector" $ whnf intersectionC vecOfHMs
+              , bench "HashSet" $ whnf intersectionC hsetOfHMs
+              , bench "Set" $ whnf intersectionC setOfHMs
+              ]
+            , bgroup "size"
+              [ bench "List" $ nf sizeC listOfHMs
+              , bench "Vector" $ nf sizeC vecOfHMs
+              , bench "HashSet" $ nf sizeHS hsetOfHMs
+              , bench "Set" $ nf sizeS setOfHMs
+              ]
+            ]
+
             -- Combine
           , bench "union" $ whnf (HM.union hmi) hmi2
 
             -- Transformations
           , bench "map" $ whnf (HM.map (\ v -> v + 1)) hmi
 
-            -- * Difference and intersection
+            -- Difference and intersection
           , bench "difference" $ whnf (HM.difference hmi) hmi2
           , bench "intersection" $ whnf (HM.intersection hmi) hmi2
 
@@ -374,6 +448,18 @@ lookup xs m = foldl' (\z k -> fromMaybe z (HM.lookup k m)) 0 xs
 {-# SPECIALIZE lookup :: [BS.ByteString] -> HM.HashMap BS.ByteString Int
                       -> Int #-}
 
+lookupC :: (Eq k, Hashable k, Traversable f) => [k] -> f (HM.HashMap k Int) -> f Int
+lookupC = fmap . lookup
+{-# SPECIALIZE lookupC :: [Int] -> [HM.HashMap Int Int] -> [Int] #-}
+{-# SPECIALIZE lookupC :: [Int] -> V.Vector (HM.HashMap Int Int)
+                       -> V.Vector Int #-}
+
+lookupHS :: [Int] -> HS.HashSet (HM.HashMap Int Int) -> HS.HashSet Int
+lookupHS = HS.map . lookup
+
+lookupS :: [Int] -> S.Set (HM.HashMap Int Int) -> S.Set Int
+lookupS = S.map . lookup
+
 insert :: (Eq k, Hashable k) => [(k, Int)] -> HM.HashMap k Int
        -> HM.HashMap k Int
 insert xs m0 = foldl' (\m (k, v) -> HM.insert k v m) m0 xs
@@ -384,6 +470,21 @@ insert xs m0 = foldl' (\m (k, v) -> HM.insert k v m) m0 xs
 {-# SPECIALIZE insert :: [(BS.ByteString, Int)] -> HM.HashMap BS.ByteString Int
                       -> HM.HashMap BS.ByteString Int #-}
 
+insertC :: (Eq k, Hashable k, Traversable f) => [(k, Int)] -> f (HM.HashMap k Int)
+        -> f (HM.HashMap k Int)
+insertC l = fmap (insert l)
+{-# SPECIALIZE insertC :: [(Int, Int)] -> [HM.HashMap Int Int]
+                       -> [HM.HashMap Int Int] #-}
+{-# SPECIALIZE insertC :: [(Int, Int)] -> V.Vector (HM.HashMap Int Int)
+                       -> V.Vector (HM.HashMap Int Int) #-}
+
+insertHS :: [(Int, Int)] -> HS.HashSet (HM.HashMap Int Int)
+         -> HS.HashSet (HM.HashMap Int Int)
+insertHS l = HS.map (insert l)
+
+insertS :: [(Int, Int)] -> S.Set (HM.HashMap Int Int) -> S.Set (HM.HashMap Int Int)
+insertS l = S.map (insert l)
+
 delete :: (Eq k, Hashable k) => [k] -> HM.HashMap k Int -> HM.HashMap k Int
 delete xs m0 = foldl' (\m k -> HM.delete k m) m0 xs
 {-# SPECIALIZE delete :: [Int] -> HM.HashMap Int Int -> HM.HashMap Int Int #-}
@@ -391,6 +492,21 @@ delete xs m0 = foldl' (\m k -> HM.delete k m) m0 xs
                       -> HM.HashMap String Int #-}
 {-# SPECIALIZE delete :: [BS.ByteString] -> HM.HashMap BS.ByteString Int
                       -> HM.HashMap BS.ByteString Int #-}
+
+deleteC :: (Eq k, Hashable k, Functor f) => [k] -> f (HM.HashMap k Int)
+        -> f (HM.HashMap k Int)
+deleteC = fmap . delete
+{-# SPECIALIZE deleteC :: [Int] -> [HM.HashMap Int Int]
+                       -> [HM.HashMap Int Int] #-}
+{-# SPECIALIZE deleteC :: [Int] -> V.Vector (HM.HashMap Int Int)
+                       -> V.Vector (HM.HashMap Int Int) #-}
+
+deleteHS :: [Int] -> HS.HashSet (HM.HashMap Int Int)
+         -> HS.HashSet (HM.HashMap Int Int)
+deleteHS = HS.map . delete
+
+deleteS :: [Int] -> S.Set (HM.HashMap Int Int) -> S.Set (HM.HashMap Int Int)
+deleteS = S.map . delete
 
 alterInsert :: (Eq k, Hashable k) => [(k, Int)] -> HM.HashMap k Int
              -> HM.HashMap k Int
@@ -435,6 +551,52 @@ alterFDelete xs m0 =
                             -> HM.HashMap String Int #-}
 {-# SPECIALIZE alterFDelete :: [BS.ByteString] -> HM.HashMap BS.ByteString Int
                             -> HM.HashMap BS.ByteString Int #-}
+
+unionC :: (Eq k, Hashable k, Foldable f) => f (HM.HashMap k Int)
+       -> HM.HashMap k Int
+unionC = foldl' HM.union mempty
+{-# SPECIALIZE unionC :: [HM.HashMap Int Int] -> HM.HashMap Int Int #-}
+{-# SPECIALIZE unionC :: V.Vector (HM.HashMap Int Int) -> HM.HashMap Int Int #-}
+{-# SPECIALIZE unionC :: HS.HashSet (HM.HashMap Int Int) -> HM.HashMap Int Int #-}
+{-# SPECIALIZE unionC :: S.Set (HM.HashMap Int Int) -> HM.HashMap Int Int #-}
+
+mapC :: (Eq k, Hashable k, Functor f) => (Int -> Int) -> f (HM.HashMap k Int)
+       -> f (HM.HashMap k Int)
+mapC f = fmap (HM.map f)
+{-# SPECIALIZE mapC :: (Int -> Int) -> [HM.HashMap Int Int]
+                    -> [HM.HashMap Int Int] #-}
+{-# SPECIALIZE mapC :: (Int -> Int) -> V.Vector (HM.HashMap Int Int)
+                    -> V.Vector (HM.HashMap Int Int) #-}
+
+mapHS :: (Int -> Int) -> HS.HashSet (HM.HashMap Int Int)
+      -> HS.HashSet (HM.HashMap Int Int)
+mapHS f = HS.map (HM.map f)
+
+mapS :: (Int -> Int) -> S.Set (HM.HashMap Int Int) -> S.Set (HM.HashMap Int Int)
+mapS f = S.map (HM.map f)
+
+intersectionC :: (Eq k, Hashable k, Foldable f) => f (HM.HashMap k Int)
+            -> HM.HashMap k Int
+intersectionC = foldl' HM.intersection mempty
+{-# SPECIALIZE intersectionC :: [HM.HashMap Int Int]
+                             -> HM.HashMap Int Int #-}
+{-# SPECIALIZE intersectionC :: V.Vector (HM.HashMap Int Int)
+                             -> HM.HashMap Int Int #-}
+{-# SPECIALIZE intersectionC :: HS.HashSet (HM.HashMap Int Int)
+                             -> HM.HashMap Int Int #-}
+{-# SPECIALIZE intersectionC :: S.Set (HM.HashMap Int Int)
+                             -> HM.HashMap Int Int #-}
+
+sizeC :: (Eq k, Hashable k, Functor f) => f (HM.HashMap k Int) -> f Int
+sizeC = fmap HM.size
+{-# SPECIALIZE sizeC :: [HM.HashMap Int Int] -> [Int] #-}
+{-# SPECIALIZE sizeC :: V.Vector (HM.HashMap Int Int) -> V.Vector Int #-}
+
+sizeHS :: HS.HashSet (HM.HashMap Int Int) -> HS.HashSet Int
+sizeHS = HS.map HM.size
+
+sizeS :: S.Set (HM.HashMap Int Int) -> S.Set Int
+sizeS = S.map HM.size
 
 isSubmapOfNaive :: (Eq k, Hashable k) => HM.HashMap k Int -> HM.HashMap k Int -> Bool
 isSubmapOfNaive m1 m2 = and [ Just v1 == HM.lookup k1 m2 | (k1,v1) <- HM.toList m1 ]
