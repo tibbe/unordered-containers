@@ -628,6 +628,11 @@ lookup' h k m = lookupCont (\_ -> Nothing) (\v _i -> Just v) h k 0 m
 -- If a collision did not occur then it will have the Int value (-1).
 data LookupRes a = Absent | Present a !Int
 
+lookupResToMaybe :: LookupRes a -> Maybe a
+lookupResToMaybe Absent        = Nothing
+lookupResToMaybe (Present x _) = Just x
+{-# INLINE lookupResToMaybe #-}
+
 -- Internal helper for lookup. This version takes the precomputed hash so
 -- that functions that make multiple calls to lookup and related functions
 -- (insert, delete) only need to calculate the hash once.
@@ -1291,11 +1296,16 @@ alterF :: (Functor f, Eq k, Hashable k)
 alterF f = \ !k !m ->
   let
     !h = hash k
-    mv = lookup' h k m
+    lookupRes = lookupRecordCollision h k m
+    mv = lookupResToMaybe lookupRes
   in (<$> f mv) $ \fres ->
     case fres of
-      Nothing -> maybe m (const (delete' h k m)) mv
-      Just v' -> insert' h k v' m
+      Nothing -> case lookupRes of
+        Absent      -> m
+        Present _ i -> deleteKeyExists i h k m
+      Just v' -> case lookupRes of
+        Absent      -> insertNewKey h k v' m
+        Present _ i -> insertKeyExists i h k v' m
 
 -- We unconditionally rewrite alterF in RULES, but we expose an
 -- unfolding just in case it's used in some way that prevents the
@@ -1415,9 +1425,7 @@ alterFEager f !k m = (<$> f mv) $ \fres ->
 
   where !h = hash k
         !lookupRes = lookupRecordCollision h k m
-        !mv = case lookupRes of
-           Absent -> Nothing
-           Present v _ -> Just v
+        !mv = lookupResToMaybe lookupRes
 {-# INLINABLE alterFEager #-}
 #endif
 
